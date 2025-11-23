@@ -20,7 +20,6 @@ import { toast } from 'sonner'
 import API from './api/api'
 
 export default function App() {
-  // Application state
   const [currentPage, setCurrentPage] = useState('home')
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [products, setProducts] = useState<Product[]>([])
@@ -29,36 +28,26 @@ export default function App() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
 
-  // Loading & error
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Fetch products from backend
+  // Load products from backend
   useEffect(() => {
     API.get('/products')
       .then((res) => setProducts(res.data))
-      .catch((err) => {
-        console.error('Error fetching products:', err)
-        setError('Failed to load products')
-      })
+      .catch(() => setError('Failed to load products'))
       .finally(() => setLoading(false))
   }, [])
 
-  // Navigation handler
   const handleNavigate = (page: string) => {
     setCurrentPage(page)
     setSelectedProduct(null)
     setEditingProduct(null)
   }
 
-  // Authentication handlers
   const handleLogin = (user: User) => {
     setCurrentUser(user)
-    if (user.role === 'customer') {
-      setCurrentPage('customer-dashboard')
-    } else {
-      setCurrentPage('manager-dashboard')
-    }
+    setCurrentPage(user.role === 'customer' ? 'customer-dashboard' : 'manager-dashboard')
     toast.success(`Welcome back, ${user.name}!`)
   }
 
@@ -69,7 +58,9 @@ export default function App() {
     toast.success('Logged out successfully')
   }
 
-  // Cart management
+  // ------------------------
+  // CART MANAGEMENT
+  // ------------------------
   const handleAddToCart = (product: Product, quantity: number = 1) => {
     if (!currentUser) {
       toast.error('Please login to add items to cart')
@@ -93,7 +84,7 @@ export default function App() {
           toast.error('Cannot add more items than available stock')
           return prevItems
         }
-        toast.success(`Updated ${product.name} quantity in cart`)
+        toast.success(`Updated ${product.name} quantity`)
         return prevItems.map((item) =>
           item.product.id === product.id ? { ...item, quantity: newQuantity } : item
         )
@@ -109,37 +100,91 @@ export default function App() {
       handleRemoveFromCart(productId)
       return
     }
-    setCartItems((prevItems) =>
-      prevItems.map((item) => (item.product.id === productId ? { ...item, quantity } : item))
+    setCartItems((prev) =>
+      prev.map((item) => (item.product.id === productId ? { ...item, quantity } : item))
     )
   }
 
   const handleRemoveFromCart = (productId: string) => {
-    setCartItems((prevItems) => prevItems.filter((item) => item.product.id !== productId))
+    setCartItems((prev) => prev.filter((item) => item.product.id !== productId))
     toast.success('Item removed from cart')
   }
 
-  // Product management
+  // ------------------------
+  // PRODUCT MANAGEMENT
+  // ------------------------
+
   const handleViewProduct = (product: Product) => {
     setSelectedProduct(product)
     setCurrentPage('product-detail')
   }
 
-  const handleSaveProduct = (productData: Omit<Product, 'id'>) => {
-    if (editingProduct) {
-      setProducts((prevProducts) =>
-        prevProducts.map((p) =>
-          p.id === editingProduct.id ? { ...p, ...productData, id: editingProduct.id } : p
+  // ⭐ UPDATED WITH BACKEND (POST + PUT)
+  const handleSaveProduct = async (productData: Omit<Product, 'id'>) => {
+    try {
+      if (editingProduct) {
+        const updatePayload = {
+          title: productData.name,
+          description: productData.description,
+          price: productData.price,
+          images: productData.image ? [productData.image] : [],
+          stock: productData.stock,
+          category: productData.category,
+        }
+
+        const res = await API.put(`/products/${editingProduct.id}`, updatePayload)
+
+        setProducts((prev) =>
+          prev.map((p) =>
+            p.id === editingProduct.id
+              ? {
+                  ...p,
+                  id: res.data._id,
+                  name: res.data.title,
+                  description: res.data.description,
+                  price: res.data.price,
+                  image: res.data.images?.[0] || '',
+                  stock: res.data.stock,
+                  category: res.data.category,
+                }
+              : p
+          )
         )
-      )
-      toast.success('Product updated successfully')
-    } else {
-      const newProduct: Product = { ...productData, id: `product-${Date.now()}` } as Product
-      setProducts((prevProducts) => [...prevProducts, newProduct])
-      toast.success('Product added successfully')
+
+        toast.success('Product updated successfully')
+      } else {
+        const createPayload = {
+          title: productData.name,
+          description: productData.description,
+          price: productData.price,
+          images: productData.image ? [productData.image] : [],
+          stock: productData.stock,
+          category: productData.category,
+        }
+
+        const res = await API.post('/products', createPayload)
+        const saved = res.data
+
+        const newProduct: Product = {
+          id: saved._id,
+          name: saved.title,
+          description: saved.description,
+          price: saved.price,
+          image: saved.images?.[0] || '',
+          stock: saved.stock,
+          category: saved.category,
+        }
+
+        setProducts((prev) => [...prev, newProduct])
+        toast.success('Product added successfully')
+      }
+
+      setEditingProduct(null)
+      setCurrentPage('manager-dashboard')
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to save product')
     }
-    setEditingProduct(null)
-    setCurrentPage('manager-dashboard')
   }
 
   const handleEditProduct = (product: Product) => {
@@ -148,11 +193,13 @@ export default function App() {
   }
 
   const handleDeleteProduct = (productId: string) => {
-    setProducts((prevProducts) => prevProducts.filter((p) => p.id !== productId))
+    setProducts((prev) => prev.filter((p) => p.id !== productId))
     toast.success('Product deleted successfully')
   }
 
-  // Order management
+  // ------------------------
+  // ORDER MANAGEMENT
+  // ------------------------
   const handlePlaceOrder = (orderData: any) => {
     if (!currentUser) return
     const newOrder: Order = {
@@ -165,16 +212,14 @@ export default function App() {
       address: orderData.address,
       createdAt: new Date().toISOString().split('T')[0],
     }
-    setOrders((prevOrders) => [...prevOrders, newOrder])
+    setOrders((prev) => [...prev, newOrder])
     setCartItems([])
     setCurrentPage('customer-dashboard')
     toast.success('Order placed successfully!')
   }
 
   const handleUpdateOrderStatus = (orderId: string, status: Order['status']) => {
-    setOrders((prevOrders) =>
-      prevOrders.map((order) => (order.id === orderId ? { ...order, status } : order))
-    )
+    setOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, status } : order)))
     toast.success(`Order ${orderId} ${status}`)
   }
 
@@ -182,26 +227,30 @@ export default function App() {
   const featuredProducts = products.filter((p) => p.featured)
   const recommendedProducts = products.slice(0, 6)
 
-  // Loading/Error fallback
   if (loading) return <div className="text-center mt-10">Loading products...</div>
   if (error) return <div className="text-center mt-10 text-red-500">{error}</div>
 
-  // Render pages
   const renderCurrentPage = () => {
     switch (currentPage) {
       case 'home':
         return (
           <HomePage
-            featuredProducts={featuredProducts.length ? featuredProducts : [{
-              id: '1',
-              name: 'Sample Product',
-              price: 99,
-              featured: true,
-              stock: 10,
-              image: 'https://via.placeholder.com/150',
-              description: 'Fallback product',
-              category: 'sesame',
-            }]}
+            featuredProducts={
+              featuredProducts.length
+                ? featuredProducts
+                : [
+                    {
+                      id: '1',
+                      name: 'Sample Product',
+                      price: 99,
+                      featured: true,
+                      stock: 10,
+                      image: 'https://via.placeholder.com/150',
+                      description: 'Fallback product',
+                      category: 'sesame',
+                    },
+                  ]
+            }
             onAddToCart={handleAddToCart}
             onViewProduct={handleViewProduct}
             onNavigate={handleNavigate}
@@ -217,11 +266,19 @@ export default function App() {
           />
         )
 
-      case 'about': return <AboutPage />
-      case 'contact': return <ContactPage />
+      case 'about':
+        return <AboutPage />
+
+      case 'contact':
+        return <ContactPage />
 
       case 'login':
-        return <LoginPage onLogin={handleLogin} onNavigateToManager={() => setCurrentPage('manager-login')} />
+        return (
+          <LoginPage
+            onLogin={handleLogin}
+            onNavigateToManager={() => setCurrentPage('manager-login')}
+          />
+        )
 
       case 'manager-login':
         return (
@@ -247,7 +304,9 @@ export default function App() {
             onAddToCart={handleAddToCart}
             onGoBack={() => setCurrentPage('products')}
           />
-        ) : <div className="text-center mt-10">No product selected</div>
+        ) : (
+          <div className="text-center mt-10">No product selected</div>
+        )
 
       case 'cart':
         return (
@@ -271,21 +330,22 @@ export default function App() {
 
       case 'customer-dashboard':
         if (!currentUser || currentUser.role !== 'customer') {
-          return <div className="text-center mt-10 text-red-500">Please login as a customer to view the dashboard.</div>
+          return <div className="text-center mt-10 text-red-500">Please login as a customer.</div>
         }
-        return (
-          <CustomerDashboard      />
-        )
+        return <CustomerDashboard />
 
       case 'manager-dashboard':
         if (!currentUser || currentUser.role !== 'manager') {
-          return <div className="text-center mt-10 text-red-500">Please login as a manager to view the dashboard.</div>
+          return <div className="text-center mt-10 text-red-500">Unauthorized</div>
         }
         return (
           <ManagerDashboard
             products={products}
             orders={orders}
-            onAddProduct={() => { setEditingProduct(null); setCurrentPage('add-edit-product') }}
+            onAddProduct={() => {
+              setEditingProduct(null)
+              setCurrentPage('add-edit-product')
+            }}
             onEditProduct={handleEditProduct}
             onDeleteProduct={handleDeleteProduct}
             onUpdateOrderStatus={handleUpdateOrderStatus}
